@@ -1,0 +1,21 @@
+{
+    "meta" : {
+        "label": "KDrive",
+        "description": "Share files between your KDrive and Dataiku account",
+        "icon": "fas fa-puzzle-piece"
+    },
+    "params": [
+        {
+            "name": "api_token",
+            "label": "API Token",
+            "type": "PRESET",
+            "parameterSetId": "api-token"
+        },
+        {
+            "name": "root_url",
+            "label": "Folder's URL",
+            "type": "STRING",
+            "description": "Copy / Paste here the URL of your KDrive folder"
+        }
+    ]
+}

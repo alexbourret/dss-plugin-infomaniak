@@ -1,0 +1,22 @@
+{
+    "meta" : {
+        "label": "Parameter set api-token",
+        "description": "",
+        "icon": "fas fa-puzzle-piece"
+    },
+    "defaultDefinableInline": false,
+    "defaultDefinableAtProjectLevel": false,
+    "pluginParams": [
+    ],
+
+    "params": [
+        {
+            "name": "api_token",
+            "type": "CREDENTIAL_REQUEST",
+            "label": "API token",
+            "credentialRequestSettings": {
+                "type": "SINGLE_FIELD"
+            }
+        }
+    ]
+}
