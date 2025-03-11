@@ -9,4 +9,5 @@ class InfomaniakAuth(requests.auth.AuthBase):
         request.headers["Authorization"] = "Bearer {}".format(
             self.api_token
         )
+        request.headers["User-Agent"] = "Dataiku DSS infomaniak plugin v0.0.1"
         return request

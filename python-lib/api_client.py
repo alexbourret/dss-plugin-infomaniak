@@ -2,7 +2,7 @@ import requests
 from safe_logger import SafeLogger
 
 
-logger = SafeLogger("api-client")
+logger = SafeLogger("api-client", forbidden_keys=["Authorization"])
 
 
 class APIClient():
@@ -103,7 +103,6 @@ class APIClient():
             response = self.get(endpoint, url=url, params=params, raw=True)
             items_retrieved = 0
             json_response = response.json()
-            print("ALX:response_json={}".format(json_response))
             for row in get_next_row_from_response(json_response, data_path):
                 items_retrieved += 1
                 yield row
@@ -180,5 +179,6 @@ def display_response_error(response):
         logger.info("status_code={}".format(status_code))
         if status_code >= 400:
             logger.error("Error {}. Dumping response:{}".format(status_code, response.content))
+            logger.error("url={}, headers={}".format(response.url, response.headers))
     else:
         logger.error("Not a requests.Response object")

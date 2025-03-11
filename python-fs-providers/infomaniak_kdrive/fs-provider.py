@@ -1,13 +1,7 @@
-# This file is the actual code for the custom Python FS provider infomaniak_kdrive
-
 from dataiku.fsprovider import FSProvider
-from infomaniak_client import KdriveClient
+from infomaniak_client import KdriveClient, Item
 import os, shutil
 from io import BytesIO
-
-"""
-This sample provides files from inside the providerRoot passed in the config
-"""
 
 
 class CustomFSProvider(FSProvider):
@@ -21,28 +15,12 @@ class CustomFSProvider(FSProvider):
             root = root[1:]
         self.root = root
         self.provider_root = "/"
-        print("ALX:root={}".format(root))
         root_url = config.get("root_url")
 
-        print("ALX:config={}".format(config))
         auth = config.get("api_token", {})
         api_token = auth.get("api_token")
         self.client = KdriveClient(api_token=api_token)
-        print("ALX={}".format(self.client.get_drive_list()))
-        # https://ksuite.infomaniak.com/kdrive/app/drive/497955/files/5
-        # https://api.infomaniak.com/3/drive/{drive_id}/files/{file_id}/files
         self.drive_id, self.root_file_id = extract_id_from_url(root_url)
-
-        #/files
-        # empty dir: {'result': 'success', 'data': [], 'response_at': 1741257188, 'cursor': None, 'has_more': False}
-        # file: {'result': 'error', 'error': {'code': 'destination_not_a_directory', 'description': 'Destination not a valid directory'}}
-
-        #just the id:
-        # file: {'result': 'success', 'data': {'id': 12, 'name': 'test docs.docx', 'type': 'file', 'status': None, 'visibility': 'is_in_private_space', 'drive_id': 497955, 'depth': 2, 'created_by': 1169836, 'created_at': None, 'added_at': 1651421833, 'last_modified_at': 1651941461, 'last_modified_by': 1169836, 'revised_at': 1651941461, 'updated_at': 1707225623, 'parent_id': 5, 'size': 50274, 'mime_type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'extension_type': 'text'}}
-        # root dir: {'result': 'success', 'data': {'id': 5, 'name': 'Private', 'type': 'dir', 'status': None, 'visibility': 'is_private_space', 'drive_id': 497955, 'depth': 1, 'created_by': None, 'created_at': None, 'added_at': 1651401746, 'last_modified_at': 1741257137, 'last_modified_by': None, 'revised_at': 1741257137, 'updated_at': 1741257137, 'parent_id': 1, 'color': None}}
-
-        #self.root_file_id = 12
-        self.operations = 0
 
 
     # util methods
@@ -75,28 +53,28 @@ class CustomFSProvider(FSProvider):
         if the object doesn't exist
         """
         full_path = self.get_full_path(path)
-        print("ALX:stat:full_path={}".format(full_path)) # ALX:stat:full_path=/first/second/outside.png
-        # why ALX:stat:full_path=/first/interpolated2.png/interpolated2.png ?
-        self.operations += 1
-        print("ALX:operation={}".format(self.operations))
+        print("stat:full_path={}".format(full_path)) # :stat:full_path=/first/second/outside.png
+        # why :stat:full_path=/first/interpolated2.png/interpolated2.png ?
         item = self.client.get_item(self.drive_id, self.root_file_id, full_path.strip("/"), self.get_lnt_path(path).strip("/"))
         if not item.exists():
             return None
         item_description = item.get_description()
         if item.is_folder():
-            return {
+            ret = {
                 "path": self.get_lnt_path(path),
                 "size": 0,
                 "lastModified": item_description.get("lastModified"),
                 "isDirectory": True
             }
+            return ret
         else:
-            return {
+            ret = {
                 "path": self.get_lnt_path(path),
                 "size": item_description.get("size"),
                 "lastModified": item_description.get("lastModified"),
                 "isDirectory": False
             }
+            return ret
         # {
         #     "name": self.descriptor.get("name"),
         #     "lastModified": int(self.descriptor.get("last_modified_at")) * 1000,
@@ -124,23 +102,17 @@ class CustomFSProvider(FSProvider):
         List the file or directory at the given path, and its children (if directory)
         """
         full_path = self.get_full_path(path)
-        print("ALX:browse:full_path={}, self.drive_id={}, self.root_file_id={}".format(full_path, self.drive_id, self.root_file_id))
-        self.operations += 1
-        print("ALX:operation={}".format(self.operations))
+        print("browse:full_path={}, self.drive_id={}, self.root_file_id={}".format(full_path, self.drive_id, self.root_file_id))
         item = self.client.get_item(self.drive_id, self.root_file_id, full_path.strip("/"), self.get_lnt_path(path).strip("/"))
-        print("ALX:response={}".format(item))
         if not item.exists():
             ret = {'fullPath' : None, 'exists' : False}
-            print("ALX:ret1={}".format(ret))
             return ret
         elif item.is_file():
             ret = item.get_description()
-            print("ALX:ret2={}".format(ret))
             return ret
         else:
             children = []
             for child in item.get_next_child():
-                print("ALX:child={}".format(child))
                 children.append(
                     child
                 )
@@ -150,23 +122,7 @@ class CustomFSProvider(FSProvider):
                 'directory' : True,
                 'children' : children
             }
-            print("ALX:ret3={}".format(ret))
             return ret
-
-        # if not os.path.exists(full_path):
-        #     return {'fullPath' : None, 'exists' : False}
-        # elif os.path.isfile(full_path):
-        #     return {'fullPath' : self.get_lnt_path(path), 'exists' : True, 'directory' : False, 'size' : os.path.getsize(full_path)}
-        # else:
-        #     children = []
-        #     for sub in os.listdir(full_path):
-        #         sub_full_path = os.path.join(full_path, sub)
-        #         sub_path = self.get_lnt_path(os.path.join(path, sub))
-        #         if os.path.isdir(sub_full_path):
-        #             children.append({'fullPath' : sub_path, 'exists' : True, 'directory' : True, 'size' : 0})
-        #         else:
-        #             children.append({'fullPath' : sub_path, 'exists' : True, 'directory' : False, 'size' : os.path.getsize(sub_full_path)})
-        #     return {'fullPath' : self.get_lnt_path(path), 'exists' : True, 'directory' : True, 'children' : children}
 
     def enumerate(self, path, first_non_empty):
         """
@@ -175,23 +131,47 @@ class CustomFSProvider(FSProvider):
         If the prefix doesn't denote a file or folder, return None
         """
         full_path = self.get_full_path(path)
-        print("ALX:enumerate:full_path={}".format(full_path))
-        self.operations += 1
-        print("ALX:operation={}".format(self.operations))
+        print("enumerate:full_path={}".format(full_path))
         item = self.client.get_item(self.drive_id, self.root_file_id, full_path.strip("/"), self.get_lnt_path(path).strip("/"))
         if not item.exists():
             return None
         if item.is_file():
             item_description = item.get_description()
-            return [
+            ret = [
                 {
                     'path': self.get_lnt_path(path),
                     'size': item_description.get("size"),
                     'lastModified': item_description.get("lastModified")
                 }
             ]
+            return ret
+        ret = self.list_recursive(item, path, full_path, first_non_empty)
+        return ret
+
+    def list_recursive(self, folder_item, path, full_path, first_non_empty):
         paths = []
-        for child in item.get_next_child():
+        print("list_recursive={}/{}".format(path, full_path))
+        for child in folder_item.get_next_child():
+            if child.get("directory"):
+                new_paths = self.list_recursive(
+                    Item(self.client, self.drive_id, path, child),
+                    self.get_lnt_path(os.path.join(path, child.get("name"))),
+                    self.get_lnt_path(os.path.join(full_path, child.get("name"))),
+                    first_non_empty
+                )
+                paths.extend(
+                    new_paths
+                )
+            else:
+                full_sub_path = os.path.join(path, child.get("name"))
+                sub_path = full_sub_path[len(os.path.join(self.provider_root, self.root)):]
+                paths.append(
+                    {
+                        'path': self.get_lnt_path(full_sub_path),
+                        'size': child.get("size"),
+                        'lastModified': child.get("lastModified")
+                    }
+                )
             # {
             #     "name": item.get("name"),
             #     "lastModified": int(item.get("last_modified_at")) * 1000,
@@ -199,36 +179,15 @@ class CustomFSProvider(FSProvider):
             #     "fullPath": "/".join([self.path, item.get("name")]),
             #     "directory": item.get("type")=="dir"
             # }
-            full_sub_path = os.path.join(path, child.get("name"))
-            sub_path = full_sub_path[len(os.path.join(self.provider_root, self.root)):]
-            paths.append(
-                {
-                    'path': self.get_lnt_path(sub_path),
-                    'size': child.get("size"),
-                    'lastModified': child.get("lastModified")
-                }
-            )
         return paths
-        # if not os.path.exists(full_path):
-        #     return None
-        # if os.path.isfile(full_path):
-        #     return [{'path':self.get_lnt_path(path), 'size':os.path.getsize(full_path), 'lastModified':int(os.path.getmtime(full_path)) * 1000}]
-        # paths = []
-        # for root, dirs, files in os.walk(full_path):
-        #     for file in files:
-        #         full_sub_path = os.path.join(root, file)
-        #         sub_path = full_sub_path[len(os.path.join(self.provider_root, self.root)):]
-        #         paths.append({'path':self.get_lnt_path(sub_path), 'size':os.path.getsize(full_sub_path), 'lastModified':int(os.path.getmtime(full_sub_path)) * 1000})
-        # return paths
 
     def delete_recursive(self, path):
         """
         Delete recursively from path. Return the number of deleted files (optional)
         """
         full_path = self.get_full_path(path)
-        print("ALX:delete_recursive:full_path={}".format(full_path)) # ALX:delete_recursive:full_path=/first/Screenshot 2025-03-06 at 16.07.27.png
+        print("delete_recursive:full_path={}".format(full_path)) # :delete_recursive:full_path=/first/Screenshot 2025-03-06 at 16.07.27.png
         item = self.client.get_item(self.drive_id, self.root_file_id, full_path.strip("/"), self.get_lnt_path(path).strip("/"))
-        print("ALX:item={}/{}".format(item.get_description(), item.get_file_id()))
         if not item.exists():
             return 0
         else:
@@ -264,22 +223,13 @@ class CustomFSProvider(FSProvider):
             item_to = self.client.get_item(self.drive_id, self.root_file_id, destination_path.strip("/"), self.get_lnt_path(destination_path).strip("/"))
             self.client.move_item(self.drive_id, item_from.get_file_id(), item_to.get_file_id())
             return True
-        # print("ALX:move:full_from_path={}".format(full_from_path))
-        # if os.path.exists(full_from_path):
-        #     if from_path != to_path:
-        #         shutil.move(full_from_path, full_to_path)
-        #     return True
-        # else:
-        #     return False
 
     def read(self, path, stream, limit):
         """
         Read the object denoted by path into the stream. Limit is an optional bound on the number of bytes to send
         """
         full_path = self.get_full_path(path)
-        print("ALX:read:full_path={}".format(full_path)) # ALX:read:full_path=/first/second/outside.png
-        self.operations += 1
-        print("ALX:operation={}".format(self.operations))
+        print("read:full_path={}".format(full_path)) # :read:full_path=/first/second/outside.png
         item = self.client.get_item(self.drive_id, self.root_file_id, full_path.strip("/"), self.get_lnt_path(path).strip("/"))
         if not item.exists():
             raise Exception('Path doesn t exist')
@@ -292,25 +242,21 @@ class CustomFSProvider(FSProvider):
         Write the stream to the object denoted by path into the stream
         """
         full_path = self.get_full_path(path)
-        print("ALX:write:full_path={}".format(full_path))
+        print("write:full_path={}".format(full_path))
         full_path_parent = os.path.dirname(full_path)
-        item = self.client.get_item(self.drive_id, self.root_file_id, full_path_parent.strip("/"), self.get_lnt_path(full_path_parent).strip("/"))
+        item = self.client.get_item(self.drive_id, self.root_file_id, full_path_parent.strip("/"), self.get_lnt_path(full_path_parent).strip("/"), create_folder=True)
         parent_folder_id = item.get_file_id()
-        print("ALX:write:parent_folder_id={}".format(parent_folder_id))
         #if not item.exists():
-        #    print("ALX:doesn't exists, creating")
+        #    print("doesn't exists, creating")
         #    parent_folder_id = self.client.make_dirs(self.drive_id, self.root_file_id, full_path_parent)
-        #    print("ALX:write:parent_folder_id={}".format(parent_folder_id))
         bio = BytesIO()
         shutil.copyfileobj(stream, bio)
         bio.seek(0)
         data = bio.read()
         response = self.client.write_file_content(self.drive_id, parent_folder_id, full_path, data)
-        print("ALX:write:response={}".format(response))
 
 
 def extract_id_from_url(url):
-    #https://ksuite.infomaniak.com/kdrive/app/drive/497955/files/5
     if not url:
         return None, None
     tokens = url.strip('/').split('/')

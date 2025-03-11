@@ -8,7 +8,6 @@ logger = SafeLogger("Infomaniak client")
 
 class Item(object):
     def __init__(self, client, drive_id, path, descriptor):
-        print("ALX:creating drive_id={}, path={}, descriptor={}".format(drive_id, path, descriptor))
         self.client = client
         self.path = path
         self.descriptor = descriptor or {}
@@ -22,21 +21,21 @@ class Item(object):
                     "lastModified": int(item.get("last_modified_at")) * 1000,
                     "size": self.get_size(item=item),
                     "fullPath": "/".join([self.path, item.get("name")]),
-                    "directory": item.get("type")=="dir"
+                    "directory": item.get("type")=="dir",
+                    "id": item.get("id")
                 }
             return 
         if self.is_file():
             raise Exception("'{}' is a file, cannot list its content".format(self.path))
-        print("ALX:self.client={}".format(self.client))
         for item in self.client.get_next_folder_item(self.drive_id, self.get_file_id()):
             is_directory = item.get("type")=="dir"
-            print("ALX:is_directory={}".format(is_directory))
             yield {
                 "name": item.get("name"),
                 "lastModified": int(item.get("last_modified_at")) * 1000,
                 "size": self.get_size(item=item),
                 "fullPath": "/".join([self.path, item.get("name")]),
-                "directory": item.get("type")=="dir"
+                "directory": item.get("type")=="dir",
+                "id": item.get("id")
             }
     def get_size(self, item=None):
         if item:
@@ -52,18 +51,24 @@ class Item(object):
             "name": self.descriptor.get("name"),
             "lastModified": int(self.descriptor.get("last_modified_at")) * 1000,
             "size": self.get_size(),
-            "fullPath": "/".join([self.path, self.descriptor.get("name")]),
+            "fullPath": self._de_duplicated_full_path(), # "/".join([self.path, self.descriptor.get("name")]),
             "directory": self.is_folder()
         }
+    def _de_duplicated_full_path(self):
+        if self.path.endswith(self.descriptor.get("name")):
+            return self.path
+        else:
+            return "/".join([self.path, self.descriptor.get("name")])
     def is_file(self):
         return self.descriptor.get("type") == "file"
     def is_folder(self):
         return self.descriptor.get("type") == "dir"
     def exists(self):
-        print("ALX:exists = {}".format(self.descriptor))
         return not not self.descriptor
     def get_file_id(self):
         return self.descriptor.get("id")
+    def get_file_name(self):
+        return self.descriptor.get("name")
     def delete(self):
         self.client.delete_item(self.drive_id, self.get_file_id())
     
@@ -91,19 +96,17 @@ class KdriveClient():
         return response
 
     def next_child(self, drive_id, file_id):
-        url = "https://api.infomaniak.com/3/drive/{drive_id}/files/{file_id}/files".format(
+        url = "https://api.infomaniak.com/3/drive/{}/files/{}/files".format(
             drive_id,
             file_id
         )
         response = self.get("", url=url)
 
     def get_drive_list(self):
-        url = "?account_id=627431"
+        url = "?account_id="
         response = self.get(url)
-        print("ALX:get_drive_list:{}".format(response))
 
     def get_next_folder_item(self, drive_id, file_id):
-        print("ALX:get_next_folder_item:drive_id={}, file_id={}".format(drive_id, file_id))
         url = "https://api.infomaniak.com/3/drive/{}/files/{}/files".format(
             drive_id,
             file_id
@@ -111,38 +114,42 @@ class KdriveClient():
         for row in self.client.get_next_row("", url=url, data_path=["data"]):
             yield row
 
-    def get_item(self, drive_id, file_id, path, relative_path):
+    def get_item(self, drive_id, file_id, path, relative_path, create_folder=False):
         path_tokens = path.split('/')
         new_file_id = file_id
-        print("ALX:get_item:path_tokens={}".format(path_tokens))
         for path_token in path_tokens:
-            print("ALX:10:path_token={}".format(path_token))
             item = self.find_item_in_file_id(drive_id, new_file_id, path_token)
-            print("ALX:11")
             if not item:
-                print("ALX:12:drive_id={}, relative_path={}".format(drive_id, relative_path))
-                return Item(self, drive_id, relative_path, None)
+                if create_folder:
+                    item = self.create_folder(drive_id, new_file_id, path_token)
+                    new_file_id = item.get("id")
+                else:
+                    return Item(self, drive_id, relative_path, None)
             elif not path_token:
                 return Item(self, drive_id, relative_path, {"id":file_id, "type": "dir"})
             else:
-                print("ALX:13")
                 new_file_id = item.get("id")
-        print("ALX:14:drive_id={}, relative_path={}, item={}".format(drive_id, relative_path, item))
         item = Item(self, drive_id, relative_path, item)
-        print("ALX:15")
         return item
 
+    def create_folder(self, drive_id, parent_folder_id, folder_name):
+        logger.info("Creating folder '{}' on drive {} with parent id {}".format(folder_name, drive_id, parent_folder_id))
+        url = "https://api.infomaniak.com/3/drive/{}/files/{}/directory".format(
+            drive_id,
+            parent_folder_id
+        )
+        data = {
+            "name": folder_name
+        }
+        response = self.post("", url=url, json=data)
+        return response.get("data")
+
     def find_item_in_file_id(self, drive_id, file_id, item_name):
-        print("ALX:find_item_in_file_id:item_name={}".format(item_name))
         for folder_item in self.get_next_folder_item(drive_id, file_id):
-            print("ALX:20:folder_item={}".format(folder_item))
             if not item_name:
-                print("ALX:21")
                 return folder_item
             if folder_item and folder_item.get("name") == item_name:
-                print("ALX:22")
                 return folder_item
-        print("ALX:23")
         return None
     
     def get_file_content(self, drive_id, file_id):
@@ -159,12 +166,8 @@ class KdriveClient():
             "total_size": len(data),
             "file_name": file_name,
             "directory_id": parent_folder_id
-            # "directory_path": "Alex Bourret{}".format(file_path)
         }
-        print("ALX:write_file_content:url={}".format(url))
         response = self.post("", url=url, params=params, data=data, raw=True)
-        print("ALX:response code={}".format(response.status_code))
-        print("ALX:response content={}".format(response.content))
         return response
 
     def delete_item(self, drive_id, item_id):
@@ -178,9 +181,7 @@ class KdriveClient():
             item_id,
             destination_directory_id
         )
-        print("ALX:move:url={}".format(url))
         response = self.post("", url=url)
-        print("ALX:move:response={}".format(response))
         return response
 
     def rename(self, drive_id, item_to_rename_id, new_name):
@@ -191,9 +192,7 @@ class KdriveClient():
         data = {
             "name": new_name
         }
-        print("ALX:rename:url={}, data={}".format(url,data))
         response = self.post("", url=url, json=data)
-        print("ALX:rename:response={}".format(response))
         return response
 
 
